@@ -2,7 +2,9 @@ package webserver
 
 // write your web framework code here:
 
-fun scheme(url: String): String = TODO()
+fun scheme(url: String): String {
+  return url.split("://")[0]
+}
 
 fun host(url: String): String = TODO()
 
