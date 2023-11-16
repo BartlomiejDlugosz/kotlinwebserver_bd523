@@ -2,26 +2,25 @@ package webserver
 
 // write your web framework code here:
 
-fun scheme(url: String): String =
-  url.split("://")[0]
+typealias HttpHandler = (Request) -> Response
+
+fun scheme(url: String): String = url.substringBefore("://")
 
 fun host(url: String): String =
-  url.split("://")[1]
-    .split("/")[0]
+  url.substringAfter("://")
+    .substringBefore("/")
 
 fun path(url: String): String =
   "/".plus(
-    url.split("://")[1]
-      .split("?")[0]
-      .split("/")
-      .drop(1)
-      .joinToString("/")
+    url.substringAfter("://")
+      .substringBefore("?")
+      .substringAfter("/")
   )
 
 fun queryParams(url: String): List<Pair<String, String>> =
   when {
     url.contains("?") ->
-      url.split("?")[1]
+      url.substringAfter("?")
         .split("&")
         .map { x: String ->
           val pair = x.split("=")
@@ -33,30 +32,65 @@ fun queryParams(url: String): List<Pair<String, String>> =
 
 // http handlers for a particular website...
 
-fun homePageHandler(request: Request): Response = Response(Status.OK, "This is Imperial.")
-fun computingPageHandler(request: Request): Response = Response(Status.OK, "This is DoC.")
-fun extractParam(params: List<Pair<String, String>>, id: String): String? = params.find { it.first == id }?.second
+fun homePageHandler(req: Request): Response = Response(Status.OK, "This is Imperial.")
 
-fun helloHandler(request: Request): Response {
-  val params = queryParams(request.url)
+fun computingPageHandler(req: Request): Response = Response(Status.OK, "This is DoC.")
+
+fun restrictedPageHandler(req: Request): Response = Response(Status.OK, "This is very secret.")
+
+fun notFound(req: Request): Response = Response(Status.NOT_FOUND, "")
+fun forbidden(req: Request): Response = Response(Status.FORBIDDEN, "")
+
+fun extractParam(
+  params: List<Pair<String, String>>,
+  id: String
+): String? = params.find { it.first == id }?.second
+
+fun helloHandler(req: Request): Response {
+  val params = queryParams(req.url)
   val name = extractParam(params, "name")
   val style = extractParam(params, "style")
   var body = "Hello, "
-  body += when {
-    name != null -> name + "!"
-    else -> "World!"
-  }
-  body = when (style) {
-    "shouting" -> body.uppercase()
-    else -> body
-  }
+  body +=
+    when {
+      name != null -> "$name!"
+      else -> "World!"
+    }
+  body =
+    when (style) {
+      "shouting" -> body.uppercase()
+      else -> body
+    }
   return Response(Status.OK, body)
 }
 
-fun route(request: Request): Response =
-  when (path(request.url)) {
-    "/" -> homePageHandler(request)
-    "/say-hello" -> helloHandler(request)
-    "/computing" -> computingPageHandler(request)
-    else -> Response(Status.NOT_FOUND, "")
+fun route(req: Request): Response =
+  when (path(req.url)) {
+    "/" -> homePageHandler(req)
+    "/say-hello" -> helloHandler(req)
+    "/computing" -> computingPageHandler(req)
+    else -> notFound(req)
   }
+
+fun requireToken(token: String, wrapped: HttpHandler): HttpHandler = { req: Request ->
+  when (req.authToken) {
+    token -> wrapped(req)
+    else -> forbidden(req)
+  }
+}
+
+val mappings: List<Pair<String, HttpHandler>> = listOf(
+  "/" to ::homePageHandler,
+  "/say-hello" to ::helloHandler,
+  "/computing" to ::computingPageHandler,
+  "/exam-marks" to requireToken("password1", ::restrictedPageHandler)
+)
+
+fun configureRoutes(mappings: List<Pair<String, HttpHandler>>): HttpHandler {
+  return { req: Request ->
+    when (val x = mappings.find { it.first == path(req.url) }) {
+      null -> notFound(req)
+      else -> x.second(req)
+    }
+  }
+}
